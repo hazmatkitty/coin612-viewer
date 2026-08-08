@@ -21,6 +21,11 @@ nix-shell --run 'cd coin612-rs && cargo test --release'         # incl. find_syn
 # Faster iteration on the Rust code (skips the python/opencv part of the shell):
 nix-shell -p rustc cargo pkg-config SDL2 libusb1 --run 'cargo build --release'
 
+# Windows: cross-compile a self-contained coin612-rs.exe from this machine
+# (exact recipe with required env vars: coin612-rs/README.md "Cross-compiling
+# the .exe from Linux"; SDL2/libusb are statically linked via the
+# target-specific deps in Cargo.toml + .cargo/config.toml)
+
 # Python viewers
 nix-shell --run 'python3 coin612_viewer.py'
 nix-shell --run 'python3 coin612_viewer_v2.py'

@@ -28,6 +28,49 @@ nix-shell --run 'cd coin612-rs && cargo build --release'
 nix-shell --run 'cd coin612-rs && cargo run --release'
 ```
 
+### Windows
+
+Builds natively with the MSVC toolchain (`rustup default stable-msvc`).
+SDL2 is compiled from source and statically linked on Windows (the `bundled` +
+`static-link` cargo features), so besides Rust you need:
+
+- **CMake** and **MSVC Build Tools** (C compiler) — for the SDL2 and libusb
+  source builds
+- **Zadig** — bind the WinUSB driver to the camera (`04B4:F7F7`) once;
+  without it libusb cannot open the device
+- **ffmpeg** on `PATH` — optional, only for the R (record) key
+
+```powershell
+cd coin612-rs
+cargo run --release
+```
+
+#### Cross-compiling the .exe from Linux
+
+Produces a self-contained `target/x86_64-pc-windows-gnu/release/coin612-rs.exe`
+(SDL2 and libusb statically linked; only Windows system DLLs imported). Zadig
+on the target machine is still required.
+
+```bash
+# Isolated rustup — the system rustup install is broken on this machine.
+# Persistent cache location so the toolchain survives across sessions:
+export RUSTUP_HOME=~/.cache/coin612-win/rustup CARGO_HOME=~/.cache/coin612-win/cargo
+nix-shell -p rustup cmake nasm pkgsCross.mingwW64.stdenv.cc pkgsCross.mingwW64.windows.pthreads --run '
+  rustup toolchain install stable --profile minimal
+  rustup target add x86_64-pc-windows-gnu
+  export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+  export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc
+  export CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++
+  export AR_x86_64_pc_windows_gnu=x86_64-w64-mingw32-ar
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5     # vendored SDL2 vs CMake 4
+  export CFLAGS_x86_64_pc_windows_gnu=-std=gnu17  # vendored SDL2 vs GCC 15 C23 default
+  cargo build --release --target x86_64-pc-windows-gnu
+'
+```
+
+When run outside the repo (e.g. the copied .exe), screenshots and recordings
+land in a `screenshots/` folder next to the executable.
+
 Flags:
 
 - `--latency-debug` — print read→present latency stats once per second

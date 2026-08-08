@@ -13,7 +13,16 @@ const TS_FORMAT: &[FormatItem<'_>] =
 
 pub fn screenshots_dir() -> PathBuf {
     // Shared with the Python viewers: <repo>/screenshots next to the crate.
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../screenshots"))
+    let repo = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../screenshots"));
+    if repo.parent().is_some_and(|p| p.is_dir()) {
+        return repo;
+    }
+    // The baked-in repo path doesn't exist on this machine (cross-compiled or
+    // relocated binary, e.g. the Windows .exe): save next to the executable.
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("screenshots")))
+        .unwrap_or_else(|| PathBuf::from("screenshots"))
 }
 
 pub fn timestamp(local_offset: UtcOffset) -> String {

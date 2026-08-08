@@ -32,7 +32,7 @@ impl Recorder {
             .arg(&path)
             .stdin(Stdio::piped())
             .spawn()
-            .context("ffmpeg not found -- run inside nix-shell")?;
+            .context("ffmpeg not found in PATH (Linux: run inside nix-shell; Windows: install ffmpeg)")?;
         let mut stdin = child.stdin.take().expect("piped stdin");
 
         // Sized to absorb ffmpeg's startup delay (~1s of frames at 30fps);

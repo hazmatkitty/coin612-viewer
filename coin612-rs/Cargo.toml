@@ -5,11 +5,18 @@ edition = "2021"
 
 [dependencies]
 rusb = "0.9"
-sdl2 = { version = "0.37", features = ["use-pkgconfig"] }
 triple_buffer = "8"
 png = "0.17"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 anyhow = "1"
+
+[target.'cfg(not(windows))'.dependencies]
+sdl2 = { version = "0.37", features = ["use-pkgconfig"] }
+
+# Windows has no pkg-config; build SDL2 from source and link it statically
+# (requires CMake and a C compiler, e.g. MSVC Build Tools).
+[target.'cfg(windows)'.dependencies]
+sdl2 = { version = "0.37", features = ["bundled", "static-link"] }
 
 [profile.release]
 opt-level = 3
