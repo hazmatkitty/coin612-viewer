@@ -14,6 +14,7 @@ mod frame;
 mod osd;
 mod palette;
 mod palette_tables;
+mod recorder;
 mod render;
 mod screenshot;
 mod sync;
@@ -140,7 +141,7 @@ fn main() -> Result<()> {
         vsync: false,
     };
 
-    println!("Controls: Q=Quit C=Palette P=Raw H=HEQ F=Full S=Screenshot");
+    println!("Controls: Q=Quit C=Palette P=Raw H=HEQ F=Full S=Screenshot R=Record");
     println!("NUC: SPACE=Quick N=Extended G=LowNoise  T=Y16/UYVY  +/-=Contrast V=VSync");
 
     let mut event_pump = sdl.event_pump().map_err(|e| anyhow!(e))?;
@@ -152,6 +153,7 @@ fn main() -> Result<()> {
     let mut disconnected: Option<String> = None;
     // Persists until the next rendered frame so a keypress between frames isn't lost.
     let mut want_screenshot = false;
+    let mut recorder: Option<recorder::Recorder> = None;
 
     'running: loop {
         let mut new_frame = false;
@@ -209,6 +211,42 @@ fn main() -> Result<()> {
                         }
                     }
                     Keycode::S => want_screenshot = true,
+                    Keycode::R => match recorder.take() {
+                        Some(r) => r.stop(),
+                        None => {
+                            let fps_est = if fps_times.len() > 1 {
+                                let d = (*fps_times.back().unwrap()
+                                    - *fps_times.front().unwrap())
+                                .as_secs_f64();
+                                if d > 0.0 {
+                                    ((fps_times.len() - 1) as f64 / d).round() as u32
+                                } else {
+                                    30
+                                }
+                            } else {
+                                30
+                            }
+                            .clamp(1, 120);
+                            let dir = screenshot::screenshots_dir();
+                            if let Err(e) = std::fs::create_dir_all(&dir) {
+                                eprintln!("Cannot create {}: {e}", dir.display());
+                            } else {
+                                let path = dir.join(format!(
+                                    "coin612_{}.mp4",
+                                    screenshot::timestamp(local_offset)
+                                ));
+                                match recorder::Recorder::start(
+                                    path,
+                                    WIDTH + BAR_W,
+                                    HEIGHT,
+                                    fps_est,
+                                ) {
+                                    Ok(r) => recorder = Some(r),
+                                    Err(e) => eprintln!("Recording failed: {e:#}"),
+                                }
+                            }
+                        }
+                    },
                     Keycode::Space => cmd.quick_nuc(),
                     Keycode::N => {
                         let h = handle.clone();
@@ -294,10 +332,11 @@ fn main() -> Result<()> {
         };
         let lut = compose_lut(&stats, &params, pal);
 
+        let recording = recorder.is_some();
         tex.with_lock(None, |px, pitch| {
             render::blit(plane, &lut, px, pitch, WIDTH);
             let mut ov = Overlay { px, pitch, w: WIDTH, h: HEIGHT };
-            draw_overlays(&mut ov, &stats, &state, &palettes, fps, src_name);
+            draw_overlays(&mut ov, &stats, &state, &palettes, fps, src_name, recording);
         })
         .map_err(|e| anyhow!(e))?;
 
@@ -329,25 +368,53 @@ fn main() -> Result<()> {
             }
         }
 
+        if let Some(rec) = recorder.as_mut() {
+            let frame =
+                compose_display_frame(plane, &lut, &stats, &state, &palettes, pal, fps, src_name, true);
+            rec.push(frame);
+        }
+
         if want_screenshot {
-            // Re-render video + overlays + bar into a tightly packed buffer.
-            let full_w = WIDTH + BAR_W;
-            let mut scratch = vec![0u8; full_w * HEIGHT * 4];
-            render::blit(plane, &lut, &mut scratch, full_w * 4, WIDTH);
-            let mut ov = Overlay { px: &mut scratch, pitch: full_w * 4, w: WIDTH, h: HEIGHT };
-            draw_overlays(&mut ov, &stats, &state, &palettes, fps, src_name);
-            render::fill_color_bar_at(pal, &mut scratch, full_w * 4, WIDTH, BAR_W, HEIGHT);
-            screenshot::save(local_offset, scratch, full_w, HEIGHT, fp.y16.clone());
+            let frame =
+                compose_display_frame(plane, &lut, &stats, &state, &palettes, pal, fps, src_name, recording);
+            screenshot::save(local_offset, frame, WIDTH + BAR_W, HEIGHT, fp.y16.clone());
             want_screenshot = false;
         }
     }
 
+    if let Some(r) = recorder.take() {
+        r.stop();
+    }
     stop.store(true, Ordering::Relaxed);
     // Reader notices the stop flag within one read timeout.
     let _ = reader.join();
     Ok(())
 }
 
+/// Re-render video + overlays + color bar into a tightly packed ARGB buffer
+/// (used for screenshots and as the recording frame source).
+#[allow(clippy::too_many_arguments)]
+fn compose_display_frame(
+    plane: &[u8],
+    lut: &[u32; 256],
+    stats: &Stats,
+    state: &ViewerState,
+    palettes: &[palette::Palette],
+    pal: &palette::Lut,
+    fps: f64,
+    src_name: &str,
+    recording: bool,
+) -> Vec<u8> {
+    let full_w = WIDTH + BAR_W;
+    let mut buf = vec![0u8; full_w * HEIGHT * 4];
+    render::blit(plane, lut, &mut buf, full_w * 4, WIDTH);
+    let mut ov = Overlay { px: &mut buf, pitch: full_w * 4, w: WIDTH, h: HEIGHT };
+    draw_overlays(&mut ov, stats, state, palettes, fps, src_name, recording);
+    render::fill_color_bar_at(pal, &mut buf, full_w * 4, WIDTH, BAR_W, HEIGHT);
+    buf
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_overlays(
     ov: &mut Overlay,
     stats: &Stats,
@@ -355,6 +422,7 @@ fn draw_overlays(
     palettes: &[palette::Palette],
     fps: f64,
     src_name: &str,
+    recording: bool,
 ) {
     ov.cross(stats.max_loc.0 as i32, stats.max_loc.1 as i32, 15, osd::RED);
     ov.cross(stats.min_loc.0 as i32, stats.min_loc.1 as i32, 15, osd::BLUE);
@@ -370,10 +438,13 @@ fn draw_overlays(
     );
     ov.text(4, 6, &info, osd::GREEN);
     ov.text(4, 18, &info2, osd::GREEN);
+    if recording {
+        ov.text((WIDTH - 40) as i32, 6, "REC", osd::RED);
+    }
 
     let legend = [
         "Q:Quit C:Palette P:Raw H:HEQ F:Full T:Y16/UYVY +/-:Contrast",
-        "S:Screenshot SPACE:NUC N:ExtNUC G:LowNoise V:VSync 1-9:Palette",
+        "S:Screenshot R:Record SPACE:NUC N:ExtNUC G:LowNoise V:VSync 1-9:Palette",
     ];
     for (i, line) in legend.iter().enumerate() {
         ov.text(4, (HEIGHT - 22 + i * 11) as i32, line, osd::GRAY);

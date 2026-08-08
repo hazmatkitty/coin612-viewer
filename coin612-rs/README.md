@@ -46,6 +46,7 @@ Flags:
 | F | Fullscreen |
 | +/- | Contrast |
 | S | Screenshot (PNG + raw Y16 to `../screenshots/`) |
+| R | Record H.264 MP4 of the displayed view (via ffmpeg subprocess) |
 | SPACE | Quick NUC (shutter compensation) |
 | N | Extended NUC (better ghost removal) |
 | G | Low-noise gain mode |

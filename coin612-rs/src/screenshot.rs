@@ -16,6 +16,13 @@ pub fn screenshots_dir() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../screenshots"))
 }
 
+pub fn timestamp(local_offset: UtcOffset) -> String {
+    OffsetDateTime::now_utc()
+        .to_offset(local_offset)
+        .format(TS_FORMAT)
+        .unwrap_or_else(|_| "unknown".into())
+}
+
 /// Fire-and-forget save. `argb` is the full displayed frame (video + overlays),
 /// tightly packed (pitch == w*4).
 pub fn save(local_offset: UtcOffset, argb: Vec<u8>, w: usize, h: usize, y16: Vec<u8>) {
@@ -25,10 +32,7 @@ pub fn save(local_offset: UtcOffset, argb: Vec<u8>, w: usize, h: usize, y16: Vec
             eprintln!("Screenshot dir failed: {e}");
             return;
         }
-        let ts = OffsetDateTime::now_utc()
-            .to_offset(local_offset)
-            .format(TS_FORMAT)
-            .unwrap_or_else(|_| "unknown".into());
+        let ts = timestamp(local_offset);
 
         let png_path = dir.join(format!("coin612_{ts}.png"));
         let raw_path = dir.join(format!("coin612_{ts}_y16.raw"));
