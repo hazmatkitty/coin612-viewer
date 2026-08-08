@@ -1,0 +1,13 @@
+__pycache__
+**/*.pyc
+
+# Rust build
+coin612-rs/target/
+
+# runtime artifacts
+.coin612_viewer.pid
+screenshots/
+
+# raw stream captures (the committed test fixture stays)
+*.raw
+!coin612-rs/tests/fixtures/stream.raw
