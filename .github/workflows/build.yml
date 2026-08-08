@@ -1,0 +1,62 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coin612-rs
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libusb-1.0-0-dev pkg-config ffmpeg
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: coin612-rs
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coin612-rs-linux-x86_64
+          path: coin612-rs/target/release/coin612-rs
+
+  windows:
+    # Cross-compiled with mingw-w64, same recipe as the local build
+    # (coin612-rs/README.md "Cross-compiling the .exe from Linux").
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coin612-rs
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+      CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+      CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++
+      AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+      # Vendored SDL2 vs newer CMake / GCC-15 C23 default; harmless on older tools.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      CFLAGS_x86_64_pc_windows_gnu: -std=gnu17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cross toolchain
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 cmake
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: coin612-rs
+          key: windows-gnu
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coin612-rs-windows-x86_64
+          path: coin612-rs/target/x86_64-pc-windows-gnu/release/coin612-rs.exe
